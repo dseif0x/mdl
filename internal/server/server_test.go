@@ -11,12 +11,18 @@ import (
 	"time"
 
 	"github.com/dseif0x/mdl/internal/provider"
+	"github.com/dseif0x/mdl/internal/queue"
 )
 
-// fakeProvider is a controllable Provider for tests.
+// fakeProvider is a controllable Provider for tests. Download runs in a worker
+// goroutine, so it signals completion over a channel.
 type fakeProvider struct {
 	tracks []provider.Track
-	called bool
+	called chan provider.Track
+}
+
+func newFakeProvider() *fakeProvider {
+	return &fakeProvider{called: make(chan provider.Track, 1)}
 }
 
 func (f *fakeProvider) Name() string        { return "fake" }
@@ -28,19 +34,34 @@ func (f *fakeProvider) Search(_ context.Context, _ string, _ provider.SearchOpti
 	return f.tracks, nil
 }
 func (f *fakeProvider) Download(_ context.Context, t provider.Track, _ provider.DownloadOptions) (*provider.DownloadResult, error) {
-	f.called = true
+	if f.called != nil {
+		f.called <- t
+	}
 	return &provider.DownloadResult{Files: []string{"/downloads/" + t.Title + ".mp3"}}, nil
 }
 
-func newTestServer(p provider.Provider) http.Handler {
+func newTestServer(t *testing.T, p provider.Provider) http.Handler {
+	t.Helper()
 	reg := provider.NewRegistry()
 	reg.Register(p)
+	q := queue.New(
+		func(ctx context.Context, name string, track provider.Track) (*provider.DownloadResult, error) {
+			pr, ok := reg.Get(name)
+			if !ok {
+				return nil, context.Canceled
+			}
+			return pr.Download(ctx, track, provider.DownloadOptions{})
+		},
+		queue.Options{Workers: 1, Timeout: time.Minute},
+	)
+	q.Start(context.Background())
+	t.Cleanup(q.Shutdown)
 	static := fstest.MapFS{"index.html": {Data: []byte("ok")}}
-	return New(reg, static, time.Minute, nil).Handler()
+	return New(reg, q, static, nil).Handler()
 }
 
 func TestProvidersEndpoint(t *testing.T) {
-	h := newTestServer(&fakeProvider{})
+	h := newTestServer(t, newFakeProvider())
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/providers", nil))
 
@@ -59,7 +80,7 @@ func TestProvidersEndpoint(t *testing.T) {
 }
 
 func TestSearchRequiresParams(t *testing.T) {
-	h := newTestServer(&fakeProvider{})
+	h := newTestServer(t, newFakeProvider())
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/search?provider=fake", nil))
 	if rr.Code != http.StatusBadRequest {
@@ -68,7 +89,7 @@ func TestSearchRequiresParams(t *testing.T) {
 }
 
 func TestSearchUnknownProvider(t *testing.T) {
-	h := newTestServer(&fakeProvider{})
+	h := newTestServer(t, newFakeProvider())
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/search?provider=nope&q=x", nil))
 	if rr.Code != http.StatusNotFound {
@@ -77,8 +98,9 @@ func TestSearchUnknownProvider(t *testing.T) {
 }
 
 func TestSearchReturnsTracks(t *testing.T) {
-	fp := &fakeProvider{tracks: []provider.Track{{Title: "Song", Provider: "fake", URL: "u"}}}
-	h := newTestServer(fp)
+	fp := newFakeProvider()
+	fp.tracks = []provider.Track{{Title: "Song", Provider: "fake", URL: "u"}}
+	h := newTestServer(t, fp)
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/search?provider=fake&q=song", nil))
 	if rr.Code != http.StatusOK {
@@ -96,22 +118,37 @@ func TestSearchReturnsTracks(t *testing.T) {
 }
 
 func TestDownloadByURL(t *testing.T) {
-	fp := &fakeProvider{}
-	h := newTestServer(fp)
+	fp := newFakeProvider()
+	h := newTestServer(t, fp)
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/download",
 		strings.NewReader(`{"provider":"fake","url":"https://example/x"}`))
 	h.ServeHTTP(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200 (body=%s)", rr.Code, rr.Body.String())
+
+	// Download is async: the API accepts the job and a worker runs it.
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202 (body=%s)", rr.Code, rr.Body.String())
 	}
-	if !fp.called {
+	var job queue.Job
+	if err := json.Unmarshal(rr.Body.Bytes(), &job); err != nil {
+		t.Fatal(err)
+	}
+	if job.ID == "" || job.Status != queue.StatusQueued {
+		t.Fatalf("unexpected job: %+v", job)
+	}
+
+	select {
+	case got := <-fp.called:
+		if got.URL != "https://example/x" {
+			t.Fatalf("download got URL %q", got.URL)
+		}
+	case <-time.After(2 * time.Second):
 		t.Fatal("provider Download was not called")
 	}
 }
 
 func TestDownloadRequiresURL(t *testing.T) {
-	h := newTestServer(&fakeProvider{})
+	h := newTestServer(t, newFakeProvider())
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/download", strings.NewReader(`{"provider":"fake"}`))
 	h.ServeHTTP(rr, req)

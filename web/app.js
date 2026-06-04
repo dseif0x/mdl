@@ -9,6 +9,8 @@ const els = {
   urlForm: document.getElementById("url-form"),
   status: document.getElementById("status"),
   results: document.getElementById("results"),
+  jobsPanel: document.getElementById("jobs-panel"),
+  jobs: document.getElementById("jobs"),
 };
 
 // setStatus shows a transient message; kind controls the colour.
@@ -96,24 +98,110 @@ function renderTrack(track) {
   return li;
 }
 
+async function enqueueDownload(body) {
+  const job = await api("/api/download", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  startJobPolling();
+  return job;
+}
+
 async function downloadTrack(track, btn) {
   btn.disabled = true;
-  btn.textContent = "Downloading…";
-  setStatus(`Downloading "${track.title}"…`, "info");
+  btn.textContent = "Queued…";
   try {
-    const result = await api("/api/download", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ provider: track.provider, track }),
-    });
-    const count = (result.files || []).length;
-    setStatus(count ? `Saved ${count} file(s).` : "Download complete.", "success");
-    btn.textContent = "Done ✓";
+    await enqueueDownload({ provider: track.provider, track });
+    setStatus(`Queued "${track.title}".`, "success");
+    btn.textContent = "Queued ✓";
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = "Download";
+    }, 1500);
   } catch (err) {
     setStatus(err.message, "error");
     btn.textContent = "Retry";
     btn.disabled = false;
   }
+}
+
+// --- downloads panel -------------------------------------------------------
+
+const JOB_LABELS = {
+  queued: "Queued",
+  running: "Downloading…",
+  completed: "Completed",
+  failed: "Failed",
+  cancelled: "Cancelled",
+};
+
+let jobsTimer = null;
+
+function startJobPolling() {
+  refreshJobs();
+  if (jobsTimer === null) {
+    jobsTimer = setInterval(refreshJobs, 1500);
+  }
+}
+
+async function refreshJobs() {
+  let jobs;
+  try {
+    ({ jobs } = await api("/api/jobs"));
+  } catch {
+    return; // transient; try again on the next tick
+  }
+  renderJobs(jobs);
+  const active = jobs.some((j) => j.status === "queued" || j.status === "running");
+  if (!active && jobsTimer !== null) {
+    clearInterval(jobsTimer);
+    jobsTimer = null;
+  }
+}
+
+function renderJobs(jobs) {
+  els.jobsPanel.hidden = jobs.length === 0;
+  els.jobs.innerHTML = "";
+  for (const job of jobs) {
+    els.jobs.appendChild(renderJob(job));
+  }
+}
+
+function renderJob(job) {
+  const li = document.createElement("li");
+  li.className = "job";
+  li.dataset.status = job.status;
+
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  const title = document.createElement("span");
+  title.className = "title";
+  title.textContent = job.track.title || job.track.url;
+  const sub = document.createElement("span");
+  sub.className = "sub";
+  sub.textContent = `${job.provider} · ${JOB_LABELS[job.status] || job.status}`;
+  if (job.status === "failed" && job.error) sub.textContent += ` — ${job.error}`;
+  meta.append(title, sub);
+  li.appendChild(meta);
+
+  if (job.status === "queued" || job.status === "running") {
+    const cancel = document.createElement("button");
+    cancel.className = "cancel";
+    cancel.textContent = "Cancel";
+    cancel.addEventListener("click", async () => {
+      cancel.disabled = true;
+      try {
+        await api(`/api/jobs/${job.id}/cancel`, { method: "POST" });
+        refreshJobs();
+      } catch (err) {
+        setStatus(err.message, "error");
+        cancel.disabled = false;
+      }
+    });
+    li.appendChild(cancel);
+  }
+  return li;
 }
 
 els.searchForm.addEventListener("submit", async (e) => {
@@ -136,15 +224,9 @@ els.urlForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const url = els.urlInput.value.trim();
   if (!url) return;
-  setStatus("Downloading…", "info");
   try {
-    const result = await api("/api/download", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ provider: els.urlProvider.value, url }),
-    });
-    const count = (result.files || []).length;
-    setStatus(count ? `Saved ${count} file(s).` : "Download complete.", "success");
+    await enqueueDownload({ provider: els.urlProvider.value, url });
+    setStatus("Download queued.", "success");
     els.urlInput.value = "";
   } catch (err) {
     setStatus(err.message, "error");
@@ -152,3 +234,5 @@ els.urlForm.addEventListener("submit", async (e) => {
 });
 
 loadProviders().catch((err) => setStatus(`Failed to load providers: ${err.message}`, "error"));
+// Surface any jobs already in progress (e.g. after a page reload).
+refreshJobs();

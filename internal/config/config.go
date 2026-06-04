@@ -3,6 +3,7 @@ package config
 
 import (
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -19,6 +20,8 @@ type Config struct {
 	AppleMusicCmd []string
 	// DownloadTimeout caps how long a single download may run.
 	DownloadTimeout time.Duration
+	// DownloadWorkers is the number of concurrent downloads.
+	DownloadWorkers int
 }
 
 // Load reads configuration from the environment, applying defaults.
@@ -29,12 +32,22 @@ func Load() Config {
 		YtdlpBinary:     env("MDL_YTDLP_BINARY", "yt-dlp"),
 		AppleMusicCmd:   strings.Fields(env("MDL_APPLEMUSIC_CMD", "apple-music-dl")),
 		DownloadTimeout: envDuration("MDL_DOWNLOAD_TIMEOUT", 30*time.Minute),
+		DownloadWorkers: envInt("MDL_DOWNLOAD_WORKERS", 2),
 	}
 }
 
 func env(key, def string) string {
 	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
 		return v
+	}
+	return def
+}
+
+func envInt(key string, def int) int {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
 	}
 	return def
 }

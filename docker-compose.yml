@@ -1,31 +1,18 @@
 services:
-  # The mdl service: REST API + web UI for searching and downloading music.
+  # mdl: REST API + web UI for searching and downloading music. The image
+  # bundles yt-dlp (YouTube/SoundCloud) and apple-music-dl (Apple Music), so a
+  # single container handles all providers.
   mdl:
     build: .
+    image: ghcr.io/dseif0x/mdl:latest
     container_name: mdl
     ports:
       - "8080:8080"
     environment:
       MDL_ADDR: ":8080"
       MDL_DOWNLOAD_DIR: "/downloads"
-      # The Apple Music provider runs apple-music-dl inside the sibling
-      # container below, via `docker exec`.
-      MDL_APPLEMUSIC_CMD: "docker exec apple-music-downloader apple-music-dl"
-    volumes:
-      - ./downloads:/downloads
-      # Needed so mdl can `docker exec` into the apple-music-downloader container.
-      - /var/run/docker.sock:/var/run/docker.sock
-    depends_on:
-      - apple-music-downloader
-    restart: unless-stopped
-
-  # zhaarey/apple-music-downloader, kept alive so mdl can exec into it.
-  # Build context is the directory holding the Apple Music Dockerfile you
-  # already have; adjust `context`/`dockerfile` to point at it.
-  apple-music-downloader:
-    build:
-      context: ./apple-music-downloader
-    container_name: apple-music-downloader
+      # apple-music-dl is on PATH inside the image; the default already works.
+      MDL_APPLEMUSIC_CMD: "apple-music-dl"
     volumes:
       - ./downloads:/downloads
     restart: unless-stopped
