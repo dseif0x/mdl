@@ -2,35 +2,35 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
 	"log/slog"
 	"net/http"
-	"time"
 
 	"github.com/dseif0x/mdl/internal/provider"
+	"github.com/dseif0x/mdl/internal/queue"
 )
 
-// Server wires the provider registry and static assets to HTTP handlers.
+// Server wires the provider registry, download queue and static assets to HTTP
+// handlers.
 type Server struct {
-	registry        *provider.Registry
-	static          fs.FS
-	downloadTimeout time.Duration
-	log             *slog.Logger
+	registry *provider.Registry
+	queue    *queue.Queue
+	static   fs.FS
+	log      *slog.Logger
 }
 
 // New builds a Server. static is the filesystem holding the frontend assets.
-func New(registry *provider.Registry, static fs.FS, downloadTimeout time.Duration, log *slog.Logger) *Server {
+func New(registry *provider.Registry, q *queue.Queue, static fs.FS, log *slog.Logger) *Server {
 	if log == nil {
 		log = slog.Default()
 	}
 	return &Server{
-		registry:        registry,
-		static:          static,
-		downloadTimeout: downloadTimeout,
-		log:             log,
+		registry: registry,
+		queue:    q,
+		static:   static,
+		log:      log,
 	}
 }
 
@@ -40,6 +40,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/providers", s.handleProviders)
 	mux.HandleFunc("GET /api/search", s.handleSearch)
 	mux.HandleFunc("POST /api/download", s.handleDownload)
+	mux.HandleFunc("GET /api/jobs", s.handleListJobs)
+	mux.HandleFunc("GET /api/jobs/{id}", s.handleGetJob)
+	mux.HandleFunc("POST /api/jobs/{id}/cancel", s.handleCancelJob)
 	mux.Handle("GET /", http.FileServer(http.FS(s.static)))
 	return logRequests(s.log, mux)
 }
@@ -114,8 +117,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "'provider' is required")
 		return
 	}
-	p, ok := s.registry.Get(name)
-	if !ok {
+	if _, ok := s.registry.Get(name); !ok {
 		writeError(w, http.StatusNotFound, "unknown provider: "+name)
 		return
 	}
@@ -133,16 +135,31 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	}
 	track.Provider = name
 
-	ctx, cancel := context.WithTimeout(r.Context(), s.downloadTimeout)
-	defer cancel()
+	// Enqueue and return immediately; the client polls the job for progress.
+	job := s.queue.Submit(name, track)
+	s.log.Info("download enqueued", "job", job.ID, "provider", name, "url", track.URL)
+	writeJSON(w, http.StatusAccepted, job)
+}
 
-	s.log.Info("download started", "provider", name, "url", track.URL)
-	result, err := p.Download(ctx, track, provider.DownloadOptions{})
-	if err != nil {
-		s.log.Error("download failed", "provider", name, "url", track.URL, "err", err)
-		writeError(w, http.StatusBadGateway, "download failed: "+err.Error())
+func (s *Server) handleListJobs(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"jobs": s.queue.List()})
+}
+
+func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
+	job, ok := s.queue.Get(r.PathValue("id"))
+	if !ok {
+		writeError(w, http.StatusNotFound, "unknown job")
 		return
 	}
-	s.log.Info("download finished", "provider", name, "files", len(result.Files))
-	writeJSON(w, http.StatusOK, result)
+	writeJSON(w, http.StatusOK, job)
+}
+
+func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if !s.queue.Cancel(id) {
+		writeError(w, http.StatusConflict, "job is unknown or already finished")
+		return
+	}
+	job, _ := s.queue.Get(id)
+	writeJSON(w, http.StatusOK, job)
 }

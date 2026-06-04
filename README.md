@@ -9,7 +9,7 @@ Supported out of the box:
 |--------------|--------------------------------|---------------------------------------|
 | YouTube      | yt-dlp (`ytsearch`)            | yt-dlp → MP3                          |
 | SoundCloud   | yt-dlp (`scsearch`)            | yt-dlp → MP3                          |
-| Apple Music  | iTunes Search API (no auth)    | [apple-music-downloader] via `exec`   |
+| Apple Music  | iTunes Search API (no auth)    | bundled [apple-music-downloader]      |
 
 Adding a new provider (Deezer, Tidal, …) is intentionally cheap — see
 [Adding a provider](#adding-a-provider).
@@ -48,16 +48,18 @@ internal/
     youtube/             YouTube provider (yt-dlp)
     soundcloud/          SoundCloud provider (yt-dlp)
     applemusic/          Apple Music provider (iTunes API + apple-music-dl)
+  queue/                 background download queue (worker pool + job tracking)
   server/                REST handlers + access logging
 web/                     embedded static frontend
 ```
 
 ## Running
 
-### With Docker Compose (recommended)
+### With Docker (recommended)
 
-This brings up `mdl` together with the `apple-music-downloader` container it
-execs into for Apple Music downloads.
+The image bundles everything: the `mdl` binary, `yt-dlp` + `ffmpeg`
+(YouTube/SoundCloud) and `apple-music-dl` (Apple Music, built in its own stage
+from [apple-music-downloader] on a `gpac/ubuntu` base for MP4Box).
 
 ```bash
 docker compose up --build
@@ -65,10 +67,9 @@ docker compose up --build
 
 Then open <http://localhost:8080>. Downloads land in `./downloads`.
 
-> The compose file builds the Apple Music image from
-> `./apple-music-downloader/Dockerfile` (your existing Dockerfile, included
-> here). Provide the credentials/config that
-> [apple-music-downloader] requires for downloads to succeed.
+> Provide the credentials/config that [apple-music-downloader] requires for
+> Apple Music *downloads* to succeed (search needs nothing). A published image
+> is available at `ghcr.io/dseif0x/mdl` — see [Continuous delivery](#continuous-delivery).
 
 ### Locally (Go)
 
@@ -92,10 +93,11 @@ All configuration is via environment variables:
 | `MDL_YTDLP_BINARY`     | `yt-dlp`           | yt-dlp executable (name on `PATH` or absolute path).             |
 | `MDL_APPLEMUSIC_CMD`   | `apple-music-dl`   | Command to run apple-music-dl; the track URL is appended.        |
 | `MDL_DOWNLOAD_TIMEOUT` | `30m`              | Maximum duration of a single download.                            |
+| `MDL_DOWNLOAD_WORKERS` | `2`                | Number of concurrent downloads (worker-pool size).               |
 
-For the containerised setup, `MDL_APPLEMUSIC_CMD` is set to
-`docker exec apple-music-downloader apple-music-dl`, so the provider runs the
-downloader inside its sibling container.
+`MDL_APPLEMUSIC_CMD` is split on spaces, so it can also point elsewhere — e.g.
+`docker exec some-container apple-music-dl` to run the downloader in a separate
+container instead of the bundled binary.
 
 ## REST API
 
@@ -121,7 +123,9 @@ Searches a provider. `limit` defaults to 10 (max 50).
 ```
 
 ### `POST /api/download`
-Downloads a track. Supply either a full `track` (as returned by search) or a
+Enqueues a download and returns immediately with the created **job** (HTTP
+`202 Accepted`). Downloads run on a background worker pool; poll the job for
+progress. Supply either a full `track` (as returned by search) or a
 `provider` + `url`.
 
 ```bash
@@ -131,8 +135,28 @@ curl -X POST localhost:8080/api/download \
 ```
 
 ```json
-{ "files": ["/downloads/Artist - Title.mp3"], "log": "..." }
+{ "id": "c56f92d998f22ae9", "provider": "youtube", "status": "queued",
+  "track": { "url": "https://..." }, "created_at": "..." }
 ```
+
+### `GET /api/jobs`
+Lists download jobs, newest first. A job's `status` is one of `queued`,
+`running`, `completed`, `failed`, `cancelled`.
+
+```json
+{ "jobs": [
+  { "id": "c56f9…", "provider": "youtube", "status": "completed",
+    "result": { "files": ["/downloads/Artist - Title.mp3"] },
+    "created_at": "...", "started_at": "...", "finished_at": "..." }
+] }
+```
+
+### `GET /api/jobs/{id}`
+Returns a single job (404 if unknown). Poll this until `status` is terminal.
+
+### `POST /api/jobs/{id}/cancel`
+Cancels a queued or running job. Returns `409` if the job is unknown or already
+finished.
 
 ## Adding a provider
 
@@ -158,10 +182,25 @@ gofmt -l .         # formatting (should print nothing)
 
 ## Notes & limitations
 
-- Downloads are synchronous per request (bounded by `MDL_DOWNLOAD_TIMEOUT`).
-  An async job queue is a natural next step.
-- Apple Music downloads run inside the apple-music-downloader container, so
-  `mdl` returns the downloader's log rather than enumerated file paths; the
-  files appear in the shared `/downloads` volume.
+- Downloads run asynchronously on an in-memory worker pool
+  (`MDL_DOWNLOAD_WORKERS`), each bounded by `MDL_DOWNLOAD_TIMEOUT`. Because the
+  queue is in-memory, jobs do not survive a restart; a persistent store would
+  be the next step if durability is needed.
+- For Apple Music, `mdl` returns apple-music-dl's log rather than enumerated
+  file paths; the files appear under `/downloads` (ALAC/Atmos/AAC subfolders).
 - Respect the terms of service and copyright law of each provider. This tool
   is for downloading content you are entitled to access.
+
+## Continuous delivery
+
+`.github/workflows/docker-publish.yml` builds the image and pushes it to the
+GitHub Container Registry on every push to `main` (e.g. a merged PR), tagging
+it `latest` and with the commit SHA:
+
+```bash
+docker pull ghcr.io/dseif0x/mdl:latest
+```
+
+The workflow uses the built-in `GITHUB_TOKEN` (no secrets to configure) and
+builds `linux/amd64`. It builds the same multi-stage `Dockerfile`, including the
+`apple-music-dl` stage.

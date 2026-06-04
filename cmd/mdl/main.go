@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -21,6 +22,7 @@ import (
 	"github.com/dseif0x/mdl/internal/provider/soundcloud"
 	"github.com/dseif0x/mdl/internal/provider/youtube"
 	"github.com/dseif0x/mdl/internal/provider/ytdlp"
+	"github.com/dseif0x/mdl/internal/queue"
 	"github.com/dseif0x/mdl/internal/server"
 )
 
@@ -52,22 +54,41 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
-	srv := server.New(registry, static, cfg.DownloadTimeout, log)
+	// Graceful shutdown on SIGINT/SIGTERM. The queue uses this context as the
+	// parent for in-flight downloads, so cancelling it aborts them.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	// Background download queue. The RunFunc resolves the provider per job, so
+	// the queue stays decoupled from the registry.
+	q := queue.New(
+		func(jobCtx context.Context, name string, track provider.Track) (*provider.DownloadResult, error) {
+			p, ok := registry.Get(name)
+			if !ok {
+				return nil, fmt.Errorf("unknown provider: %s", name)
+			}
+			return p.Download(jobCtx, track, provider.DownloadOptions{})
+		},
+		queue.Options{
+			Workers: cfg.DownloadWorkers,
+			Timeout: cfg.DownloadTimeout,
+			Logger:  log,
+		},
+	)
+	q.Start(ctx)
+
+	srv := server.New(registry, q, static, log)
 	httpServer := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           srv.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
-		// WriteTimeout is intentionally unset: downloads can be long-running and
-		// are bounded by cfg.DownloadTimeout instead.
+		// WriteTimeout is intentionally unset: downloads are async and bounded by
+		// the queue's per-job timeout instead.
 	}
-
-	// Graceful shutdown on SIGINT/SIGTERM.
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Info("listening", "addr", cfg.Addr, "download_dir", cfg.DownloadDir)
+		log.Info("listening", "addr", cfg.Addr, "download_dir", cfg.DownloadDir, "workers", cfg.DownloadWorkers)
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
@@ -80,6 +101,8 @@ func run(log *slog.Logger) error {
 		log.Info("shutting down")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		return httpServer.Shutdown(shutdownCtx)
+		err := httpServer.Shutdown(shutdownCtx)
+		q.Shutdown() // stop accepting jobs and wait for workers
+		return err
 	}
 }

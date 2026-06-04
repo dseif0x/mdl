@@ -114,3 +114,32 @@ button:disabled { opacity: 0.6; cursor: default; }
 
 .dur { color: var(--muted); font-variant-numeric: tabular-nums; flex-shrink: 0; }
 .dl { flex-shrink: 0; }
+
+/* downloads panel */
+.jobs-panel { margin-top: 2rem; }
+.jobs-panel h2 { font-size: 1.1rem; margin: 0 0 0.5rem; }
+.jobs { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.5rem; }
+
+.job {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: var(--panel);
+  border-radius: var(--radius);
+  padding: 0.6rem 0.75rem;
+  border-left: 3px solid var(--muted);
+}
+.job[data-status="running"] { border-left-color: var(--accent); }
+.job[data-status="completed"] { border-left-color: var(--accent-2); }
+.job[data-status="failed"] { border-left-color: var(--error); }
+.job[data-status="cancelled"] { border-left-color: #777; }
+.job[data-status="queued"] { border-left-color: #c8a200; }
+
+.job .meta { flex: 1; min-width: 0; }
+.job .cancel {
+  background: transparent;
+  border-color: var(--error);
+  color: var(--error);
+  flex-shrink: 0;
+}
+.job .cancel:hover { background: var(--error); color: #fff; }
