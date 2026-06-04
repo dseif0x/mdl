@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>mdl &middot; music downloader</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>mdl</h1>
+    <p class="tagline">search &amp; download from multiple music providers</p>
+  </header>
+
+  <main>
+    <section class="panel">
+      <form id="search-form">
+        <select id="provider" aria-label="Provider"></select>
+        <input id="query" type="text" placeholder="Search for a song, artist, album…" autocomplete="off" />
+        <button type="submit">Search</button>
+      </form>
+
+      <details class="url-download">
+        <summary>Download by URL</summary>
+        <form id="url-form">
+          <select id="url-provider" aria-label="Provider for URL"></select>
+          <input id="url-input" type="url" placeholder="https://…" />
+          <button type="submit">Download</button>
+        </form>
+      </details>
+    </section>
+
+    <p id="status" class="status" role="status"></p>
+
+    <ul id="results" class="results"></ul>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

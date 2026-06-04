@@ -1,0 +1,17 @@
+# Build output
+/mdl
+/bin/
+/dist/
+
+# Local downloads
+/downloads/
+
+# Go
+*.test
+*.out
+coverage.*
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
