@@ -117,6 +117,10 @@ func (p *Provider) Download(ctx context.Context, track provider.Track, _ provide
 		return nil, fmt.Errorf("applemusic: track URL is required")
 	}
 	args := append(append([]string{}, p.downloadCmd[1:]...), track.URL)
+	// NOTE: apple-music-dl must be configured with `exit-on-error: true`. With
+	// false it prompts (fmt.Scanln) and retries on any error; run without a TTY
+	// that loops forever and the job never finishes. Stdin is left nil (the null
+	// device) so it can never block on input either.
 	cmd := exec.CommandContext(ctx, p.downloadCmd[0], args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {

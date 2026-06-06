@@ -52,7 +52,8 @@ COPY --from=amd-builder /bin/apple-music-dl /usr/local/bin/apple-music-dl
 COPY --from=amd-builder /amd/config.yaml.example /app/config.yaml
 RUN echo 'alac-save-folder: "/downloads"' >> /app/config.yaml \
     && echo 'atmos-save-folder: "/downloads"' >> /app/config.yaml \
-    && echo 'aac-save-folder: "/downloads"' >> /app/config.yaml
+    && echo 'aac-save-folder: "/downloads"' >> /app/config.yaml \
+    && sed -i 's/^exit-on-error:.*/exit-on-error: true/' /app/config.yaml
 
 COPY --from=builder /bin/mdl /usr/local/bin/mdl
 
