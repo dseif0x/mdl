@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mdl-wrapper
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mdl-wrapper
+  template:
+    metadata:
+      labels:
+        app: mdl-wrapper
+    spec:
+      {{- with .Values.wrapper.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - image: {{ .Values.wrapper.image }}
+        imagePullPolicy: {{ .Values.wrapper.imagePullPolicy }}
+        name: wrapper
+        {{- if .Values.wrapper.privileged }}
+        securityContext:
+          privileged: true
+        {{- end }}
+        env:
+        - name: args
+          value: {{ .Values.wrapper.args | quote }}
+        ports:
+        - containerPort: {{ .Values.wrapper.decryptPort }}
+          protocol: TCP
+          name: decrypt
+        - containerPort: {{ .Values.wrapper.m3u8Port }}
+          protocol: TCP
+          name: m3u8
+        - containerPort: {{ .Values.wrapper.accountPort }}
+          protocol: TCP
+          name: account
+        volumeMounts:
+        - name: wrapper-data
+          mountPath: {{ .Values.wrapper.storage.mountPath }}
+        {{- with .Values.wrapper.resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      volumes:
+        - name: wrapper-data
+          persistentVolumeClaim:
+            claimName: mdl-wrapper-data
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: mdl-wrapper-svc
+spec:
+  type: ClusterIP
+  selector:
+    app: mdl-wrapper
+  ports:
+  - name: decrypt
+    port: {{ .Values.wrapper.decryptPort }}
+    protocol: TCP
+    targetPort: {{ .Values.wrapper.decryptPort }}
+  - name: m3u8
+    port: {{ .Values.wrapper.m3u8Port }}
+    protocol: TCP
+    targetPort: {{ .Values.wrapper.m3u8Port }}
+  - name: account
+    port: {{ .Values.wrapper.accountPort }}
+    protocol: TCP
+    targetPort: {{ .Values.wrapper.accountPort }}

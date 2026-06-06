@@ -82,6 +82,16 @@ go run ./cmd/mdl
 # → listening on :8080
 ```
 
+### Kubernetes (Helm)
+
+A Helm chart is staged in [`deploy/helm/mdl`](deploy/helm/mdl) (intended to be
+published from the separate `helm-charts` repo). It deploys the `mdl` image
+alongside the [wrapper] decryption service that the bundled apple-music-dl
+talks to, and exposes a configurable Ingress for the web UI/API
+(`mdl.ingress.enabled`). See the chart's `values.yaml` for options.
+
+[wrapper]: https://github.com/WorldObservationLog/wrapper
+
 ## Configuration
 
 All configuration is via environment variables:
