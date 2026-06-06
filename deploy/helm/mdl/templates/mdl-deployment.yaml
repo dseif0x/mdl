@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mdl
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mdl
+  template:
+    metadata:
+      labels:
+        app: mdl
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/mdl-configmap.yaml") . | sha256sum }}
+    spec:
+      {{- with .Values.mdl.securityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.mdl.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - image: {{ .Values.mdl.image }}
+        imagePullPolicy: {{ .Values.mdl.imagePullPolicy }}
+        name: mdl
+        ports:
+        - containerPort: {{ .Values.mdl.port }}
+          protocol: TCP
+          name: http
+        env:
+        # mdl server settings. The bundled apple-music-dl reaches the wrapper
+        # via the rendered config.yaml (see mdl-configmap.yaml), not env vars.
+        - name: MDL_ADDR
+          value: {{ printf ":%v" .Values.mdl.port | quote }}
+        - name: MDL_DOWNLOAD_DIR
+          value: {{ .Values.mdl.mountPath | quote }}
+        {{- with .Values.mdl.extraEnv }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        volumeMounts:
+        - name: config
+          mountPath: /app/config.yaml
+          subPath: config.yaml
+        - name: downloads
+          mountPath: {{ .Values.mdl.mountPath }}
+          {{- with .Values.mdl.nfs.subPath }}
+          subPath: {{ . }}
+          {{- end }}
+        {{- with .Values.mdl.resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: mdl-config
+        - name: downloads
+          nfs:
+            server: {{ .Values.mdl.nfs.server }}
+            path: {{ .Values.mdl.nfs.path }}
+            readOnly: {{ .Values.mdl.nfs.readOnly }}
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: mdl-svc
+spec:
+  type: ClusterIP
+  selector:
+    app: mdl
+  ports:
+  - name: http
+    port: 80
+    protocol: TCP
+    targetPort: {{ .Values.mdl.port }}
