@@ -9,14 +9,15 @@
 <body>
   <header>
     <h1>mdl</h1>
-    <p class="tagline">search &amp; download from multiple music providers</p>
+    <p class="tagline">search, browse &amp; download from multiple music providers</p>
   </header>
 
   <main>
     <section class="panel">
       <form id="search-form">
         <select id="provider" aria-label="Provider"></select>
-        <input id="query" type="text" placeholder="Search for a song, artist, album…" autocomplete="off" />
+        <select id="type" aria-label="Search type"></select>
+        <input id="query" type="text" placeholder="Search…" autocomplete="off" />
         <button type="submit">Search</button>
       </form>
 
@@ -24,14 +25,14 @@
         <summary>Download by URL</summary>
         <form id="url-form">
           <select id="url-provider" aria-label="Provider for URL"></select>
-          <input id="url-input" type="url" placeholder="https://…" />
+          <input id="url-input" type="url" placeholder="https://… (track, album or artist)" />
           <button type="submit">Download</button>
         </form>
       </details>
     </section>
 
+    <nav id="breadcrumb" class="breadcrumb" hidden></nav>
     <p id="status" class="status" role="status"></p>
-
     <ul id="results" class="results"></ul>
 
     <section id="jobs-panel" class="jobs-panel" hidden>

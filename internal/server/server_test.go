@@ -17,8 +17,9 @@ import (
 // fakeProvider is a controllable Provider for tests. Download runs in a worker
 // goroutine, so it signals completion over a channel.
 type fakeProvider struct {
-	tracks []provider.Track
-	called chan provider.Track
+	tracks   []provider.Track
+	children []provider.Track
+	called   chan provider.Track
 }
 
 func newFakeProvider() *fakeProvider {
@@ -28,10 +29,13 @@ func newFakeProvider() *fakeProvider {
 func (f *fakeProvider) Name() string        { return "fake" }
 func (f *fakeProvider) DisplayName() string { return "Fake" }
 func (f *fakeProvider) Capabilities() provider.Capabilities {
-	return provider.Capabilities{Search: true, Download: true}
+	return provider.Capabilities{Search: true, Download: true, SearchAlbums: true, Browse: true}
 }
 func (f *fakeProvider) Search(_ context.Context, _ string, _ provider.SearchOptions) ([]provider.Track, error) {
 	return f.tracks, nil
+}
+func (f *fakeProvider) Browse(_ context.Context, _ provider.Track) ([]provider.Track, error) {
+	return f.children, nil
 }
 func (f *fakeProvider) Download(_ context.Context, t provider.Track, _ provider.DownloadOptions) (*provider.DownloadResult, error) {
 	if f.called != nil {
@@ -107,13 +111,42 @@ func TestSearchReturnsTracks(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rr.Code)
 	}
 	var body struct {
-		Tracks []provider.Track `json:"tracks"`
+		Items []provider.Track `json:"items"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if len(body.Tracks) != 1 || body.Tracks[0].Title != "Song" {
-		t.Fatalf("unexpected tracks: %+v", body.Tracks)
+	if len(body.Items) != 1 || body.Items[0].Title != "Song" {
+		t.Fatalf("unexpected items: %+v", body.Items)
+	}
+}
+
+func TestBrowseReturnsChildren(t *testing.T) {
+	fp := newFakeProvider()
+	fp.children = []provider.Track{{Kind: provider.KindTrack, Title: "Track 1", Provider: "fake", URL: "u"}}
+	h := newTestServer(t, fp)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/browse?provider=fake&kind=album&id=42", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body=%s)", rr.Code, rr.Body.String())
+	}
+	var body struct {
+		Items []provider.Track `json:"items"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Items) != 1 || body.Items[0].Title != "Track 1" {
+		t.Fatalf("unexpected items: %+v", body.Items)
+	}
+}
+
+func TestBrowseRequiresKind(t *testing.T) {
+	h := newTestServer(t, newFakeProvider())
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/browse?provider=fake", nil))
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rr.Code)
 	}
 }
 
