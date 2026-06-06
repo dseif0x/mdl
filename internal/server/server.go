@@ -39,6 +39,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/providers", s.handleProviders)
 	mux.HandleFunc("GET /api/search", s.handleSearch)
+	mux.HandleFunc("GET /api/browse", s.handleBrowse)
 	mux.HandleFunc("POST /api/download", s.handleDownload)
 	mux.HandleFunc("GET /api/jobs", s.handleListJobs)
 	mux.HandleFunc("GET /api/jobs/{id}", s.handleGetJob)
@@ -68,8 +69,9 @@ func (s *Server) handleProviders(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
-	name := r.URL.Query().Get("provider")
-	query := r.URL.Query().Get("q")
+	q := r.URL.Query()
+	name := q.Get("provider")
+	query := q.Get("q")
 	if name == "" || query == "" {
 		writeError(w, http.StatusBadRequest, "both 'provider' and 'q' query parameters are required")
 		return
@@ -80,18 +82,62 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit := parseLimit(r.URL.Query().Get("limit"), 10)
-	tracks, err := p.Search(r.Context(), query, provider.SearchOptions{Limit: limit})
+	opts := provider.SearchOptions{
+		Limit: parseLimit(q.Get("limit"), 25),
+		Type:  provider.SearchType(q.Get("type")),
+	}
+	items, err := p.Search(r.Context(), query, opts)
 	if err != nil {
 		if errors.Is(err, provider.ErrNotSupported) {
-			writeError(w, http.StatusNotImplemented, "provider does not support search")
+			writeError(w, http.StatusNotImplemented, "provider does not support this search type")
 			return
 		}
 		s.log.Error("search failed", "provider", name, "err", err)
 		writeError(w, http.StatusBadGateway, "search failed: "+err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tracks": tracks})
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+// handleBrowse lists the children of an album (its tracks) or an artist (its
+// albums). The item is described by query params from a prior search result.
+func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	name := q.Get("provider")
+	kind := provider.Kind(q.Get("kind"))
+	if name == "" || kind == "" {
+		writeError(w, http.StatusBadRequest, "'provider' and 'kind' query parameters are required")
+		return
+	}
+	p, ok := s.registry.Get(name)
+	if !ok {
+		writeError(w, http.StatusNotFound, "unknown provider: "+name)
+		return
+	}
+	browser, ok := p.(provider.Browser)
+	if !ok {
+		writeError(w, http.StatusNotImplemented, "provider does not support browsing")
+		return
+	}
+
+	item := provider.Track{
+		Provider: name,
+		Kind:     kind,
+		ID:       q.Get("id"),
+		URL:      q.Get("url"),
+		Title:    q.Get("title"),
+	}
+	items, err := browser.Browse(r.Context(), item)
+	if err != nil {
+		if errors.Is(err, provider.ErrNotSupported) {
+			writeError(w, http.StatusNotImplemented, "provider cannot browse this item")
+			return
+		}
+		s.log.Error("browse failed", "provider", name, "kind", kind, "err", err)
+		writeError(w, http.StatusBadGateway, "browse failed: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
 // downloadRequest is the body for POST /api/download. Provide a full track

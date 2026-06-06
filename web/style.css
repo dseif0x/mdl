@@ -89,9 +89,28 @@ button:disabled { opacity: 0.6; cursor: default; }
 .status[data-kind="success"] { color: var(--accent-2); }
 .status[data-kind="info"] { color: var(--muted); }
 
+/* breadcrumb navigation */
+.breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 1rem 0 0;
+}
+.breadcrumb .crumb {
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  padding: 0.15rem 0.25rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.breadcrumb .crumb:disabled { color: var(--text); cursor: default; }
+.breadcrumb .sep { color: var(--muted); }
+
 .results { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.5rem; }
 
-.track {
+.item {
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -107,13 +126,22 @@ button:disabled { opacity: 0.6; cursor: default; }
   object-fit: cover;
   flex-shrink: 0;
 }
+/* artists are people: round avatar */
+.item[data-kind="artist"] .art { border-radius: 50%; }
 
 .meta { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .meta .title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .meta .sub { color: var(--muted); font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .dur { color: var(--muted); font-variant-numeric: tabular-nums; flex-shrink: 0; }
-.dl { flex-shrink: 0; }
+
+.actions { display: flex; gap: 0.4rem; flex-shrink: 0; }
+.actions .open {
+  background: transparent;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.actions .open:hover { background: var(--accent); color: #fff; }
 
 /* downloads panel */
 .jobs-panel { margin-top: 2rem; }

@@ -1,15 +1,17 @@
 # mdl
 
-A small Go service for **searching and downloading music** from multiple
-providers behind one REST API and a simple web UI.
+A small Go service for **searching, browsing and downloading music** from
+multiple providers behind one REST API and a web UI. Search for songs, albums
+or artists, drill into an album's tracks or an artist's albums, and download a
+single track, a whole album, or everything from an artist.
 
 Supported out of the box:
 
-| Provider     | Search                         | Download                              |
-|--------------|--------------------------------|---------------------------------------|
-| YouTube      | yt-dlp (`ytsearch`)            | yt-dlp → MP3                          |
-| SoundCloud   | yt-dlp (`scsearch`)            | yt-dlp → MP3                          |
-| Apple Music  | iTunes Search API (no auth)    | bundled [apple-music-downloader]      |
+| Provider     | Search                | Browse              | Download                         |
+|--------------|-----------------------|---------------------|----------------------------------|
+| YouTube      | songs (yt-dlp)        | —                   | yt-dlp → MP3                     |
+| SoundCloud   | songs (yt-dlp)        | —                   | yt-dlp → MP3                     |
+| Apple Music  | songs/albums/artists  | albums, artists     | bundled [apple-music-downloader] |
 
 Adding a new provider (Deezer, Tidal, …) is intentionally cheap — see
 [Adding a provider](#adding-a-provider).
@@ -116,21 +118,34 @@ Lists registered providers and their capabilities.
 
 ```json
 { "providers": [
-  { "name": "youtube", "display_name": "YouTube",
-    "capabilities": { "search": true, "download": true } }
+  { "name": "applemusic", "display_name": "Apple Music",
+    "capabilities": { "search": true, "download": true,
+      "search_albums": true, "search_artists": true, "browse": true } }
 ] }
 ```
 
-### `GET /api/search?provider=<name>&q=<query>&limit=<n>`
-Searches a provider. `limit` defaults to 10 (max 50).
+The `search_albums`, `search_artists` and `browse` capabilities let the UI adapt
+per provider. YouTube/SoundCloud advertise song search only; Apple Music
+supports all of them.
+
+### `GET /api/search?provider=<name>&q=<query>&type=<type>&limit=<n>`
+Searches a provider. `type` is `song` (default), `album`, or `artist`; providers
+that don't support a type return `501`. `limit` defaults to 25 (max 50).
 
 ```json
-{ "tracks": [
-  { "id": "...", "provider": "youtube", "title": "...", "artist": "...",
-    "album": "...", "duration": 213, "url": "https://...",
-    "artwork_url": "https://..." }
+{ "items": [
+  { "kind": "album", "id": "...", "provider": "applemusic",
+    "title": "Discovery", "artist": "Daft Punk", "year": "2001",
+    "track_count": 14, "url": "https://...", "artwork_url": "https://..." }
 ] }
 ```
+
+Each item has a `kind` of `track`, `album`, or `artist`.
+
+### `GET /api/browse?provider=<name>&kind=<kind>&id=<id>&url=<url>`
+Lists the children of an item: an album's tracks (`kind=album`) or an artist's
+albums (`kind=artist`). Pass the `id`/`url` from a search result. Returns the
+same `{ "items": [...] }` shape. Providers without `browse` return `501`.
 
 ### `POST /api/download`
 Enqueues a download and returns immediately with the created **job** (HTTP
@@ -196,6 +211,9 @@ gofmt -l .         # formatting (should print nothing)
   (`MDL_DOWNLOAD_WORKERS`), each bounded by `MDL_DOWNLOAD_TIMEOUT`. Because the
   queue is in-memory, jobs do not survive a restart; a persistent store would
   be the next step if durability is needed.
+- An album or artist download is a single job (apple-music-dl downloads all
+  contained tracks). A prolific artist can take a while — raise
+  `MDL_DOWNLOAD_TIMEOUT` if such jobs hit the limit.
 - Downloads are laid out as `<download-dir>/Artist/Album/Track.mp3`, the
   structure [Jellyfin expects][jellyfin-music], with metadata and cover art
   embedded. yt-dlp uses `--windows-filenames` to avoid characters Jellyfin

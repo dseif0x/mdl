@@ -58,6 +58,7 @@ func (e entry) toTrack(providerName string) provider.Track {
 		artist = e.Channel
 	}
 	return provider.Track{
+		Kind:       provider.KindTrack,
 		ID:         e.ID,
 		Provider:   providerName,
 		Title:      e.Title,

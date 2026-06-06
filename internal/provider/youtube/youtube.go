@@ -27,6 +27,9 @@ func (p *Provider) Capabilities() provider.Capabilities {
 }
 
 func (p *Provider) Search(ctx context.Context, query string, opts provider.SearchOptions) ([]provider.Track, error) {
+	if opts.Type != "" && opts.Type != provider.SearchSongs {
+		return nil, provider.ErrNotSupported
+	}
 	return p.client.Search(ctx, "ytsearch", p.Name(), query, opts.Limit)
 }
 

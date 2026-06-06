@@ -8,31 +8,60 @@ import (
 	"errors"
 )
 
-// ErrNotSupported is returned by a provider when an operation (such as search)
-// is not available for that service.
+// ErrNotSupported is returned by a provider when an operation (such as album
+// search or browsing) is not available for that service.
 var ErrNotSupported = errors.New("operation not supported by this provider")
 
-// Track is a single searchable / downloadable item. Fields are best-effort:
-// providers fill in what they can and leave the rest empty.
+// Kind distinguishes the type of an Item.
+type Kind string
+
+const (
+	KindTrack  Kind = "track"
+	KindAlbum  Kind = "album"
+	KindArtist Kind = "artist"
+)
+
+// SearchType selects what a search query looks for.
+type SearchType string
+
+const (
+	SearchSongs   SearchType = "song"
+	SearchAlbums  SearchType = "album"
+	SearchArtists SearchType = "artist"
+)
+
+// Track is a single item returned by search or browse: a track, an album, or
+// an artist (see Kind). The name is historical — it is the unit the queue and
+// download API operate on. Fields are best-effort; providers fill in what they
+// can and leave the rest empty.
 type Track struct {
-	// ID is the provider-local identifier (video id, track id, ...).
+	// Kind is "track" (default), "album" or "artist".
+	Kind Kind `json:"kind,omitempty"`
+	// ID is the provider-local identifier (video id, track/collection/artist id).
 	ID string `json:"id"`
-	// Provider is the Name() of the provider this track came from.
+	// Provider is the Name() of the provider this item came from.
 	Provider string `json:"provider"`
-	Title    string `json:"title"`
-	Artist   string `json:"artist,omitempty"`
-	Album    string `json:"album,omitempty"`
-	// Duration is the track length in seconds (0 if unknown).
+	// Title is the track title, album name, or artist name depending on Kind.
+	Title  string `json:"title"`
+	Artist string `json:"artist,omitempty"`
+	Album  string `json:"album,omitempty"`
+	// Duration is the track length in seconds (0 if unknown / not a track).
 	Duration int `json:"duration,omitempty"`
-	// URL is the canonical web URL used to download the track.
+	// URL is the canonical web URL used to download or browse the item.
 	URL        string `json:"url"`
 	ArtworkURL string `json:"artwork_url,omitempty"`
+	// TrackCount is the number of tracks in an album (0 if unknown / not an album).
+	TrackCount int `json:"track_count,omitempty"`
+	// Year is the release year of an album (empty if unknown).
+	Year string `json:"year,omitempty"`
 }
 
 // SearchOptions controls a search request.
 type SearchOptions struct {
 	// Limit is the maximum number of results to return. Zero means provider default.
 	Limit int
+	// Type selects songs (default), albums, or artists.
+	Type SearchType
 }
 
 // DownloadOptions controls a download request.
@@ -58,15 +87,31 @@ type Provider interface {
 	DisplayName() string
 	// Capabilities advertises what the provider can do, so the UI can adapt.
 	Capabilities() Capabilities
-	// Search returns matching tracks for a free-text query. Providers that do
-	// not support search return ErrNotSupported.
+	// Search returns matching items for a free-text query. The Type in opts
+	// selects songs/albums/artists; providers that don't support a type return
+	// ErrNotSupported.
 	Search(ctx context.Context, query string, opts SearchOptions) ([]Track, error)
-	// Download fetches the given track to disk.
+	// Download fetches the given item to disk. For album/artist items the
+	// provider downloads all contained tracks.
 	Download(ctx context.Context, track Track, opts DownloadOptions) (*DownloadResult, error)
 }
 
-// Capabilities describes the optional features a provider implements.
+// Browser is implemented by providers that can list the children of an item:
+// the tracks of an album, or the albums of an artist.
+type Browser interface {
+	Browse(ctx context.Context, item Track) ([]Track, error)
+}
+
+// Capabilities describes the optional features a provider implements, so the
+// UI can show only what each provider can do.
 type Capabilities struct {
-	Search   bool `json:"search"`
+	// Search reports song search.
+	Search bool `json:"search"`
+	// Download reports the ability to download.
 	Download bool `json:"download"`
+	// SearchAlbums / SearchArtists report typed search support.
+	SearchAlbums  bool `json:"search_albums"`
+	SearchArtists bool `json:"search_artists"`
+	// Browse reports the ability to list an album's tracks / an artist's albums.
+	Browse bool `json:"browse"`
 }
