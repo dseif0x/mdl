@@ -5,8 +5,22 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
+
+// preview returns the first line of s, truncated to maxRunes, for compact
+// display in list responses. The full text stays available via the per-job
+// detail endpoint.
+func preview(s string, maxRunes int) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	if r := []rune(s); len(r) > maxRunes {
+		return strings.TrimSpace(string(r[:maxRunes])) + "…"
+	}
+	return s
+}
 
 // writeJSON encodes v as a JSON response with the given status code.
 func writeJSON(w http.ResponseWriter, status int, v any) {
