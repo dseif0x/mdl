@@ -44,13 +44,15 @@ RUN apt-get update && \
     apt-get purge -y curl && apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 
-# apple-music-dl binary + its config. The save folders point at the shared
-# /downloads volume, matching the upstream image's defaults.
+# apple-music-dl binary + its config. apple-music-dl already lays out
+# Artist/Album/Track via its *-folder-format options; point every save folder at
+# the download root so the result matches Jellyfin's expected structure
+# (<root>/Artist/Album/Track) alongside the yt-dlp downloads.
 COPY --from=amd-builder /bin/apple-music-dl /usr/local/bin/apple-music-dl
 COPY --from=amd-builder /amd/config.yaml.example /app/config.yaml
-RUN echo 'alac-save-folder: "/downloads/ALAC"' >> /app/config.yaml \
-    && echo 'atmos-save-folder: "/downloads/Atmos"' >> /app/config.yaml \
-    && echo 'aac-save-folder: "/downloads/AAC"' >> /app/config.yaml
+RUN echo 'alac-save-folder: "/downloads"' >> /app/config.yaml \
+    && echo 'atmos-save-folder: "/downloads"' >> /app/config.yaml \
+    && echo 'aac-save-folder: "/downloads"' >> /app/config.yaml
 
 COPY --from=builder /bin/mdl /usr/local/bin/mdl
 

@@ -109,16 +109,7 @@ func (c *Client) Download(ctx context.Context, url, destDir string) (*provider.D
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create download dir: %w", err)
 	}
-	outTmpl := filepath.Join(destDir, "%(artist,uploader|Unknown)s - %(title)s.%(ext)s")
-	args := []string{
-		"--no-playlist",
-		"--extract-audio", "--audio-format", "mp3", "--audio-quality", "0",
-		"--embed-metadata", "--embed-thumbnail",
-		"--no-simulate", "--print", "after_move:filepath",
-		"-o", outTmpl,
-		url,
-	}
-	cmd := exec.CommandContext(ctx, c.Binary, args...)
+	cmd := exec.CommandContext(ctx, c.Binary, downloadArgs(url, destDir)...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -133,6 +124,31 @@ func (c *Client) Download(ctx context.Context, url, destDir string) (*provider.D
 		}
 	}
 	return &provider.DownloadResult{Files: files, Log: stderr.String()}, nil
+}
+
+// downloadArgs builds the yt-dlp argument list for an audio download laid out
+// the way Jellyfin expects: <destDir>/<Artist>/<Album>/<Track>.mp3.
+//
+// Jellyfin scrapes embedded tags rather than file names, so we embed metadata
+// and cover art; the folder structure is for tidy browsing. Field fallbacks
+// cover YouTube/SoundCloud items that lack album/artist tags, and
+// --windows-filenames strips the characters Jellyfin flags as problematic
+// (< > : " / \ | ? *).
+func downloadArgs(url, destDir string) []string {
+	outTmpl := filepath.Join(destDir,
+		"%(artist,uploader,channel|Unknown Artist)s",
+		"%(album,title)s",
+		"%(track,title)s.%(ext)s",
+	)
+	return []string{
+		"--no-playlist",
+		"--windows-filenames",
+		"--extract-audio", "--audio-format", "mp3", "--audio-quality", "0",
+		"--embed-metadata", "--embed-thumbnail",
+		"--no-simulate", "--print", "after_move:filepath",
+		"-o", outTmpl,
+		url,
+	}
 }
 
 // execErr enriches an exec failure with the tool's stderr, which is where
