@@ -5,7 +5,10 @@ on:
     branches:
       - main
     paths:
-      - 'deploy/helm/**'
+      # Only release when a chart's version (Chart.yaml) changes. chart-releaser
+      # only publishes new versions, so template/values edits without a version
+      # bump don't need to run this.
+      - 'deploy/helm/**/Chart.yaml'
 jobs:
   release:
     permissions:
