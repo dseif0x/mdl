@@ -156,7 +156,7 @@ Lists download jobs, newest first. A job's `status` is one of `queued`,
 ```json
 { "jobs": [
   { "id": "c56f9…", "provider": "youtube", "status": "completed",
-    "result": { "files": ["/downloads/Artist - Title.mp3"] },
+    "result": { "files": ["/downloads/Artist/Album/Track.mp3"] },
     "created_at": "...", "started_at": "...", "finished_at": "..." }
 ] }
 ```
@@ -196,10 +196,16 @@ gofmt -l .         # formatting (should print nothing)
   (`MDL_DOWNLOAD_WORKERS`), each bounded by `MDL_DOWNLOAD_TIMEOUT`. Because the
   queue is in-memory, jobs do not survive a restart; a persistent store would
   be the next step if durability is needed.
+- Downloads are laid out as `<download-dir>/Artist/Album/Track.mp3`, the
+  structure [Jellyfin expects][jellyfin-music], with metadata and cover art
+  embedded. yt-dlp uses `--windows-filenames` to avoid characters Jellyfin
+  flags; Apple Music uses apple-music-dl's `*-folder-format` options.
 - For Apple Music, `mdl` returns apple-music-dl's log rather than enumerated
-  file paths; the files appear under `/downloads` (ALAC/Atmos/AAC subfolders).
+  file paths; the files still appear under the download dir in the same layout.
 - Respect the terms of service and copyright law of each provider. This tool
   is for downloading content you are entitled to access.
+
+[jellyfin-music]: https://jellyfin.org/docs/general/server/media/music/
 
 ## Continuous delivery
 

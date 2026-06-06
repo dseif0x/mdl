@@ -79,11 +79,13 @@ mdl:
     cover-format: jpg       # jpg png or original
     tag-sort-order: true
     tag-itunes-id: true
-    # Save folders are absolute so Apple Music downloads land on the NFS mount
-    # (mdl.mountPath) alongside the yt-dlp downloads. Keep them under that path.
-    alac-save-folder: /downloads/ALAC
-    atmos-save-folder: /downloads/Atmos
-    aac-save-folder: /downloads/AAC
+    # Save folders point at the download root (mdl.mountPath) so Apple Music
+    # downloads land in Jellyfin's expected Artist/Album/Track structure on the
+    # NFS mount, alongside the yt-dlp downloads. Keep them under that path.
+    # Music videos stay in a subfolder so they don't pollute the music library.
+    alac-save-folder: /downloads
+    atmos-save-folder: /downloads
+    aac-save-folder: /downloads
     mv-save-folder: /downloads/MV
     max-memory-limit: 256 # MB
     get-m3u8-from-device: true
