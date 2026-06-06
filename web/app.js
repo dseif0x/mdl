@@ -280,7 +280,15 @@ async function refreshJobs() {
   }
 }
 
+let lastJobsSig = null;
+
 function renderJobs(jobs) {
+  // Re-render only when the set of jobs/statuses changes, so a poll doesn't
+  // collapse an open "Show output" disclosure or churn the DOM.
+  const sig = jobs.map((j) => `${j.id}:${j.status}`).join(",");
+  if (sig === lastJobsSig) return;
+  lastJobsSig = sig;
+
   els.jobsPanel.hidden = jobs.length === 0;
   els.jobs.innerHTML = "";
   for (const job of jobs) els.jobs.appendChild(renderJob(job));
@@ -290,6 +298,9 @@ function renderJob(job) {
   const li = document.createElement("li");
   li.className = "job";
   li.dataset.status = job.status;
+
+  const row = document.createElement("div");
+  row.className = "job-row";
 
   const meta = document.createElement("div");
   meta.className = "meta";
@@ -301,7 +312,7 @@ function renderJob(job) {
   sub.textContent = `${job.provider} · ${JOB_LABELS[job.status] || job.status}`;
   if (job.status === "failed" && job.error) sub.textContent += ` — ${job.error}`;
   meta.append(title, sub);
-  li.appendChild(meta);
+  row.appendChild(meta);
 
   if (job.status === "queued" || job.status === "running") {
     const cancel = document.createElement("button");
@@ -317,9 +328,44 @@ function renderJob(job) {
         cancel.disabled = false;
       }
     });
-    li.appendChild(cancel);
+    row.appendChild(cancel);
   }
+  li.appendChild(row);
+
+  // The full output can be large, so it's loaded only when expanded.
+  if (job.status === "failed") li.appendChild(renderOutput(job));
+
   return li;
+}
+
+// renderOutput is a collapsed disclosure that lazy-loads a job's full output
+// from the per-job endpoint the first time it's opened.
+function renderOutput(job) {
+  const details = document.createElement("details");
+  details.className = "output";
+  const summary = document.createElement("summary");
+  summary.textContent = "Show output";
+  const pre = document.createElement("pre");
+  pre.className = "output-body";
+  details.append(summary, pre);
+
+  let loaded = false;
+  details.addEventListener("toggle", async () => {
+    if (!details.open || loaded) return;
+    loaded = true;
+    pre.textContent = "Loading…";
+    try {
+      const full = await api(`/api/jobs/${job.id}`);
+      const parts = [];
+      if (full.error) parts.push(full.error);
+      if (full.result?.log) parts.push(full.result.log);
+      pre.textContent = parts.join("\n\n") || "(no output)";
+    } catch (err) {
+      pre.textContent = err.message;
+      loaded = false; // allow a retry on next open
+    }
+  });
+  return details;
 }
 
 loadProviders().catch((err) => setStatus(`Failed to load providers: ${err.message}`, "error"));

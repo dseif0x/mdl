@@ -150,8 +150,8 @@ button:disabled { opacity: 0.6; cursor: default; }
 
 .job {
   display: flex;
-  align-items: center;
-  gap: 0.75rem;
+  flex-direction: column;
+  gap: 0.45rem;
   background: var(--panel);
   border-radius: var(--radius);
   padding: 0.6rem 0.75rem;
@@ -163,7 +163,8 @@ button:disabled { opacity: 0.6; cursor: default; }
 .job[data-status="cancelled"] { border-left-color: #777; }
 .job[data-status="queued"] { border-left-color: #c8a200; }
 
-.job .meta { flex: 1; min-width: 0; }
+.job-row { display: flex; align-items: center; gap: 0.75rem; }
+.job-row .meta { flex: 1; min-width: 0; }
 .job .cancel {
   background: transparent;
   border-color: var(--error);
@@ -171,3 +172,24 @@ button:disabled { opacity: 0.6; cursor: default; }
   flex-shrink: 0;
 }
 .job .cancel:hover { background: var(--error); color: #fff; }
+
+.job .output > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.85rem;
+  width: fit-content;
+}
+.job .output > summary:hover { color: var(--text); }
+.job .output-body {
+  margin: 0.4rem 0 0;
+  max-height: 240px;
+  overflow: auto;
+  background: var(--bg);
+  border-radius: 6px;
+  padding: 0.5rem 0.6rem;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--muted);
+}

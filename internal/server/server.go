@@ -188,7 +188,15 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListJobs(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"jobs": s.queue.List()})
+	// This list is polled frequently and the per-job error/log can be large
+	// (e.g. apple-music-dl output), so trim the heavy fields here. The full
+	// output is available on demand from GET /api/jobs/{id}.
+	jobs := s.queue.List()
+	for i := range jobs {
+		jobs[i].Result = nil
+		jobs[i].Error = preview(jobs[i].Error, 200)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"jobs": jobs})
 }
 
 func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {

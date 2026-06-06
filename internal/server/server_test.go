@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,9 +18,10 @@ import (
 // fakeProvider is a controllable Provider for tests. Download runs in a worker
 // goroutine, so it signals completion over a channel.
 type fakeProvider struct {
-	tracks   []provider.Track
-	children []provider.Track
-	called   chan provider.Track
+	tracks      []provider.Track
+	children    []provider.Track
+	called      chan provider.Track
+	downloadErr error
 }
 
 func newFakeProvider() *fakeProvider {
@@ -40,6 +42,9 @@ func (f *fakeProvider) Browse(_ context.Context, _ provider.Track) ([]provider.T
 func (f *fakeProvider) Download(_ context.Context, t provider.Track, _ provider.DownloadOptions) (*provider.DownloadResult, error) {
 	if f.called != nil {
 		f.called <- t
+	}
+	if f.downloadErr != nil {
+		return nil, f.downloadErr
 	}
 	return &provider.DownloadResult{Files: []string{"/downloads/" + t.Title + ".mp3"}}, nil
 }
@@ -177,6 +182,68 @@ func TestDownloadByURL(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("provider Download was not called")
+	}
+}
+
+func TestListJobsTrimsOutputButDetailKeepsIt(t *testing.T) {
+	fp := newFakeProvider()
+	fp.downloadErr = errors.New("short summary\n" + strings.Repeat("verbose log line\n", 500))
+	h := newTestServer(t, fp)
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/download", strings.NewReader(`{"provider":"fake","url":"u"}`)))
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("enqueue status = %d", rr.Code)
+	}
+	var job queue.Job
+	if err := json.Unmarshal(rr.Body.Bytes(), &job); err != nil {
+		t.Fatal(err)
+	}
+
+	// Poll the list until the job reaches a terminal state.
+	var listed queue.Job
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("job did not fail in time")
+		default:
+		}
+		lr := httptest.NewRecorder()
+		h.ServeHTTP(lr, httptest.NewRequest(http.MethodGet, "/api/jobs", nil))
+		var body struct {
+			Jobs []queue.Job `json:"jobs"`
+		}
+		if err := json.Unmarshal(lr.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body.Jobs) == 1 && body.Jobs[0].Status == queue.StatusFailed {
+			listed = body.Jobs[0]
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// The list view is trimmed: single-line, short error, no result/log.
+	if strings.Contains(listed.Error, "\n") {
+		t.Errorf("list error should be a single line, got %q", listed.Error)
+	}
+	if len([]rune(listed.Error)) > 201 {
+		t.Errorf("list error not truncated: %d runes", len([]rune(listed.Error)))
+	}
+	if listed.Result != nil {
+		t.Errorf("list should omit result/log, got %+v", listed.Result)
+	}
+
+	// The detail view keeps the full output.
+	dr := httptest.NewRecorder()
+	h.ServeHTTP(dr, httptest.NewRequest(http.MethodGet, "/api/jobs/"+job.ID, nil))
+	var full queue.Job
+	if err := json.Unmarshal(dr.Body.Bytes(), &full); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(full.Error, "verbose log line") {
+		t.Error("detail view should contain the full error")
 	}
 }
 
