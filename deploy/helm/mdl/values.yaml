@@ -89,8 +89,10 @@ mdl:
     mv-save-folder: /downloads/MV
     max-memory-limit: 256 # MB
     get-m3u8-from-device: true
-    # set to 'true' to exit on error instead of requiring manual intervention. (for using this program in scripts)
-    exit-on-error: false
+    # MUST stay true: mdl runs apple-music-dl non-interactively. With false, the
+    # downloader waits for Enter (fmt.Scanln) on any error and, with no TTY,
+    # loops forever -- jobs hang on "Downloading". true makes it exit instead.
+    exit-on-error: true
     # set 'all' to retrieve all m3u8, and set 'hires' to only detect hires m3u8.
     get-m3u8-mode: hires # all hires
     aac-type: aac-lc # aac-lc aac aac-binaural aac-downmix
