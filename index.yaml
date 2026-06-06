@@ -3,6 +3,17 @@ entries:
   mdl:
   - apiVersion: v2
     appVersion: 0.1.0
+    created: "2026-06-06T16:38:52.38398359Z"
+    description: A Helm chart for the mdl music search/download service and its wrapper
+      decryption dependency
+    digest: 3e8e2bedb8fa405dc068eb8b28a938c1270516ea9be0c32c99be1f8869de6898
+    name: mdl
+    type: application
+    urls:
+    - https://github.com/dseif0x/mdl/releases/download/mdl-0.8.0/mdl-0.8.0.tgz
+    version: 0.8.0
+  - apiVersion: v2
+    appVersion: 0.1.0
     created: "2026-06-06T14:15:49.169910606Z"
     description: A Helm chart for the mdl music search/download service and its wrapper
       decryption dependency
@@ -12,4 +23,4 @@ entries:
     urls:
     - https://github.com/dseif0x/mdl/releases/download/mdl-0.7.0/mdl-0.7.0.tgz
     version: 0.7.0
-generated: "2026-06-06T14:15:49.169921387Z"
+generated: "2026-06-06T16:38:52.383992794Z"
